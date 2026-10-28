@@ -1,0 +1,284 @@
+{
+  "name": "MandiPulse — Surplus Matching Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## MandiPulse — Surplus Matching Agent\n\nTriggered when new surplus inventory is added. The AI Agent uses backend tools to inspect available stock, open buyer requirements, check vehicle availability, find feasible matches, create proposals, and log audit decisions.",
+        "height": 260,
+        "width": 640
+      },
+      "id": "note-overview",
+      "name": "Sticky Note - Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        260,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mandipulse-inventory",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook - Inventory Created",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        480
+      ],
+      "webhookId": "mandipulse-inventory-webhook-001"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/api/inventory/available",
+        "options": {}
+      },
+      "id": "http-fetch-inventory",
+      "name": "HTTP - Fetch Available Inventory",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "id": "openai-chat-model",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        680,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/api/inventory/available",
+        "toolDescription": "Reads all currently available surplus produce inventory batches with remaining quantities, grades, and prices."
+      },
+      "id": "tool-available-inventory",
+      "name": "Tool - get_available_inventory",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/api/demands/open",
+        "toolDescription": "Reads all open buyer demands, including requested produce type, quantity required, quality grade, and maximum price ceiling."
+      },
+      "id": "tool-open-demands",
+      "name": "Tool - get_open_demands",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        740,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/matches/preview",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ inventory_batch_id: $fromAI('inventory_batch_id', 'ID of the inventory batch to match'), produce_type: $fromAI('produce_type', 'Type of produce e.g. Tomatoes'), available_quantity_kg: $fromAI('available_quantity_kg', 'Available quantity in kg') }) }}",
+        "toolDescription": "Calculates feasible supplier-to-buyer matches based on hard constraints (grade, price cap, distance, freshness deadline, and vehicle load)."
+      },
+      "id": "tool-find-matches",
+      "name": "Tool - find_feasible_matches",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        920,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/api/vehicles/available",
+        "toolDescription": "Checks active vehicles available for delivery dispatch, including capacity in kg, vehicle type, and cost per km."
+      },
+      "id": "tool-vehicle-availability",
+      "name": "Tool - check_vehicle_availability",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/matches/proposals",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ batch_id: $fromAI('batch_id', 'The inventory batch id'), demand_id: $fromAI('demand_id', 'The buyer demand id'), proposed_quantity: $fromAI('proposed_quantity', 'Quantity allocated in kg'), proposed_price: $fromAI('proposed_price', 'Price per kg in INR'), estimated_transport_cost: $fromAI('estimated_transport_cost', 'Estimated transport cost in INR'), supplier_proceeds: $fromAI('supplier_proceeds', 'Net proceeds for supplier'), score: $fromAI('score', 'Feasibility score between 0 and 1') }) }}",
+        "toolDescription": "Saves an approved match proposal in the backend for buyer and supplier review."
+      },
+      "id": "tool-create-proposal",
+      "name": "Tool - create_match_proposal",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        1280,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/agents/events",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ event_type: $fromAI('event_type', 'Event type e.g. match_proposed or no_match_found'), agent: 'surplus_matching_agent', summary: $fromAI('summary', 'Clear 1-sentence decision summary'), reason: $fromAI('reason', 'Detailed explanation of why matches were selected or rejected'), entity_id: $fromAI('entity_id', 'Associated batch id if applicable') }) }}",
+        "toolDescription": "Records the AI Agent's reason, analysis, and actions to the audit event log."
+      },
+      "id": "tool-record-event",
+      "name": "Tool - record_agent_event",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        1460,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Surplus Matching Agent for MandiPulse AI, an agricultural surplus produce coordination platform.\n\nTrigger Event Payload:\n{{ JSON.stringify($json) }}\n\nYour objective is to identify feasible transactions between suppliers with available surplus produce and buyers with open demand.\n\nYou have access to tools that allow you to:\n- Read available inventory (get_available_inventory).\n- Read open buyer demand (get_open_demands).\n- Find feasible matches (find_feasible_matches).\n- Check vehicle availability (check_vehicle_availability).\n- Create match proposals (create_match_proposal).\n- Record agent decisions (record_agent_event).\n\nFor every inventory event:\n1. Read the relevant inventory and buyer demand.\n2. Identify potential matches based on produce type, available quantity, price limits, quality requirements, location, delivery deadline, and freshness deadline.\n3. Use find_feasible_matches to validate feasibility.\n4. Check transportation feasibility via check_vehicle_availability where required.\n5. Rank feasible proposals based on commercial suitability and delivery feasibility.\n6. Explain why each proposal is suitable.\n7. Create proposals through create_match_proposal.\n8. Record your decision and the reason for it using record_agent_event.\n\nStrict rules:\n- Never allocate more stock than is available.\n- Never exceed a buyer's maximum price.\n- Never ignore quality requirements or freshness deadlines.\n- Never assume a vehicle is available without checking.\n- Never confirm a transaction or make a payment.\n- Never invent inventory, buyers, prices, vehicle availability, or delivery estimates.\n- Do not treat a proposed match as a completed transaction.\n- If no feasible match exists, explain why and record that no proposal was created.\n- If required information is missing, ask for clarification or return the issue for human review.\n\nReturn a clean summary of matches proposed, total quantity allocated, and status."
+      },
+      "id": "ai-agent-matching",
+      "name": "AI Agent - Surplus Matching Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        800,
+        480
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Inventory Created": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Fetch Available Inventory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Fetch Available Inventory": {
+      "main": [
+        [
+          {
+            "node": "AI Agent - Surplus Matching Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Surplus Matching Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - get_available_inventory": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Surplus Matching Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - get_open_demands": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Surplus Matching Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - find_feasible_matches": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Surplus Matching Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - check_vehicle_availability": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Surplus Matching Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - create_match_proposal": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Surplus Matching Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - record_agent_event": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Surplus Matching Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

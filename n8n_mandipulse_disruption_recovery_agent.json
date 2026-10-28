@@ -1,0 +1,202 @@
+{
+  "name": "MandiPulse — Disruption Recovery Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## MandiPulse — Disruption Recovery Agent\n\nTriggered upon vehicle breakdown, buyer cancellation, or freshness risk. Identifies affected orders, finds replacement vehicles/buyers, validates constraints, and updates proposals.",
+        "height": 260,
+        "width": 640
+      },
+      "id": "recovery-note",
+      "name": "Sticky Note - Disruption Recovery",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        260,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mandipulse-disruption",
+        "options": {}
+      },
+      "id": "webhook-disruption",
+      "name": "Webhook - Disruption Event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        480
+      ],
+      "webhookId": "mandipulse-disruption-webhook-002"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/orders/",
+        "options": {}
+      },
+      "id": "http-fetch-orders",
+      "name": "HTTP - Fetch Active Orders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "id": "recovery-openai-chat-model",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        680,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/api/vehicles/available",
+        "toolDescription": "Checks currently available substitute vehicles with capacity, type, and cost."
+      },
+      "id": "tool-rec-vehicles",
+      "name": "Tool - check_vehicle_availability",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:8000/vehicles/{{ $fromAI('vehicle_id', 'vehicle ID to mark unavailable') }}/unavailable",
+        "toolDescription": "Marks a vehicle unavailable in the backend and triggers automated re-routing."
+      },
+      "id": "tool-mark-vehicle-unavail",
+      "name": "Tool - mark_vehicle_unavailable",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        820,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/agents/events",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ event_type: 'disruption_replanned', agent: 'recovery_agent', summary: $fromAI('summary', 'Summary of replanning'), reason: $fromAI('reason', 'Detailed reason and vehicle substitute'), entity_id: $fromAI('entity_id', 'Affected order or vehicle ID') }) }}",
+        "toolDescription": "Logs the disruption replanning decision and reason into the audit timeline."
+      },
+      "id": "tool-rec-event",
+      "name": "Tool - record_agent_event",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Disruption Recovery Agent for MandiPulse AI.\n\nDisruption Event Payload:\n{{ JSON.stringify($json) }}\n\nYour task is to handle logistics or demand disruptions (e.g. vehicle breakdown, driver cancellation, buyer cancellation, or freshness expiry).\n\nProcess:\n1. Identify affected orders and batches.\n2. Call check_vehicle_availability to inspect alternative vehicles.\n3. If an alternate vehicle with sufficient capacity and ETA before freshness deadline exists, propose a replacement vehicle.\n4. If no alternative exists, flag the order for human intervention.\n5. Log the outcome using record_agent_event with exact rationale.\n\nNever invent fictitious vehicles or bypass freshness deadlines."
+      },
+      "id": "ai-agent-recovery",
+      "name": "AI Agent - Disruption Recovery Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        800,
+        480
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Disruption Event": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Fetch Active Orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Fetch Active Orders": {
+      "main": [
+        [
+          {
+            "node": "AI Agent - Disruption Recovery Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Disruption Recovery Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - check_vehicle_availability": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Disruption Recovery Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - mark_vehicle_unavailable": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Disruption Recovery Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool - record_agent_event": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Disruption Recovery Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
